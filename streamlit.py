@@ -21,8 +21,8 @@ def preprocess_data(data):
     y = data['TB/U']
 
     # Handle missing values
-    imputer = SimpleImputer(strategy='mean')
-    X = imputer.fit_transform(X)
+    # imputer = SimpleImputer(strategy='mean')
+    # X = imputer.fit_transform(X)
 
     # Standardize features
     scaler = StandardScaler()
