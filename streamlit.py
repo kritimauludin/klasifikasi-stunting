@@ -11,7 +11,7 @@ from tensorflow.keras.optimizers import Adam
 from imblearn.over_sampling import SMOTE
 
 # Menghilangkan peringatan penggunaan plt secara global
-st.set_option('deprecation.showPyplotGlobalUse', False)
+# st.set_option('deprecation.showPyplotGlobalUse', False)
 
 # Fungsi untuk memuat data
 def load_data(file_path):
