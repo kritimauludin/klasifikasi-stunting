@@ -3,75 +3,107 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score, roc_curve
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
+from imblearn.over_sampling import SMOTE
 
+# Menghilangkan peringatan penggunaan plt secara global
+st.set_option('deprecation.showPyplotGlobalUse', False)
+
+# Fungsi untuk memuat data
 def load_data(file_path):
     data = pd.read_excel(file_path)
     return data
 
+# Fungsi untuk preprocessing data
 def preprocess_data(data):
     data['TB/U'] = data['TB/U'].apply(lambda x: 1 if x == 'Pendek' else 0)
 
-    # Select relevant columns
+    # Memilih kolom yang relevan
     X = data[['Berat', 'Usia Saat Ukur (Bulan)', 'ZS TB/U']]
     y = data['TB/U']
 
-    # Handle missing values
-    # imputer = SimpleImputer(strategy='mean')
-    # X = imputer.fit_transform(X)
-
-    # Standardize features
+    # Standarisasi fitur
     scaler = StandardScaler()
     X = scaler.fit_transform(X)
 
     return X, y
 
-def visualize_data(X, y):
-    st.subheader('Scatter Plots')
-    df = pd.DataFrame(X, columns=['Berat', 'Usia Saat Ukur (Bulan)', 'ZS TB/U'])
-    df['Stunting'] = y
+# Fungsi untuk visualisasi data
+def visualize_data(X, y, X_resampled, y_resampled):
+    st.subheader('Scatter Plots Before and After SMOTE')
+
+    df_before = pd.DataFrame(X, columns=['Berat', 'Usia Saat Ukur (Bulan)', 'ZS TB/U'])
+    df_before['Stunting'] = y
+
+    df_after = pd.DataFrame(X_resampled, columns=['Berat', 'Usia Saat Ukur (Bulan)', 'ZS TB/U'])
+    df_after['Stunting'] = y_resampled
 
     fig, axs = plt.subplots(1, 2, figsize=(14, 6))
 
-    sns.scatterplot(data=df, x='Berat', y='ZS TB/U', hue='Stunting', ax=axs[0])
-    axs[0].set_title('Z-score TB/U vs. Weight (Berat)')
-    axs[0].set_xlabel('Weight (Berat)')
+    sns.scatterplot(data=df_before, x='Usia Saat Ukur (Bulan)', y='ZS TB/U', hue='Stunting', ax=axs[0])
+    axs[0].set_title('Z-score TB/U vs. Age in months Before SMOTE')
+    axs[0].set_xlabel('Age in months')
     axs[0].set_ylabel('Z-score TB/U')
 
-    sns.scatterplot(data=df, x='Usia Saat Ukur (Bulan)', y='ZS TB/U', hue='Stunting', ax=axs[1])
-    axs[1].set_title('Z-score TB/U vs. Age in months')
+    sns.scatterplot(data=df_after, x='Usia Saat Ukur (Bulan)', y='ZS TB/U', hue='Stunting', ax=axs[1])
+    axs[1].set_title('Z-score TB/U vs. Age in months After SMOTE')
     axs[1].set_xlabel('Age in months')
     axs[1].set_ylabel('Z-score TB/U')
 
+    axs[0].set_xlim(axs[1].get_xlim())
+    axs[0].set_ylim(axs[1].get_ylim())
+
     st.pyplot(fig)
 
-def build_and_train_lstm(X_train, y_train, X_val, y_val):
-    model = Sequential()
-    model.add(LSTM(50, activation='relu', input_shape=(X_train.shape[1], 1)))
-    model.add(Dropout(0.2))  # Adding Dropout to prevent overfitting
-    model.add(Dense(1, activation='sigmoid'))  # Binary classification
+# Fungsi untuk visualisasi distribusi kelas sebelum dan sesudah SMOTE
+def visualize_class_distribution(y_before_smote, y_resampled):
+    st.subheader('Class Distribution Before and After SMOTE')
 
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_data=(X_val, y_val), verbose=1)
-    
+    fig, axs = plt.subplots(1, 2, figsize=(14, 6))
+
+    sns.countplot(x=y_before_smote, ax=axs[0])
+    axs[0].set_title('Class Distribution Before SMOTE')
+    axs[0].set_xlabel('Class')
+    axs[0].set_ylabel('Count')
+
+    sns.countplot(x=y_resampled, ax=axs[1])
+    axs[1].set_title('Class Distribution After SMOTE')
+    axs[1].set_xlabel('Class')
+    axs[1].set_ylabel('Count')
+
+    st.pyplot(fig)
+
+# Fungsi untuk membangun dan melatih model LSTM
+def build_and_train_lstm(X_train, y_train, X_val, y_val, n_units=50, dropout_rate=0.2, learning_rate=0.001, epochs=10, batch_size=32):
+    model = Sequential()
+    model.add(LSTM(n_units, activation='relu', input_shape=(X_train.shape[1], X_train.shape[2])))
+    model.add(Dropout(dropout_rate))
+    model.add(Dense(1, activation='sigmoid'))
+
+    optimizer = Adam(learning_rate=learning_rate)
+    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
+
+    history = model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(X_val, y_val), verbose=1)
+
     return model, history
 
+# Fungsi untuk menampilkan riwayat pelatihan model
 def plot_training_history(history):
     fig, axs = plt.subplots(1, 2, figsize=(12, 4))
     
-    axs[0].plot(history.history['accuracy'], label='train accuracy')
-    axs[0].plot(history.history['val_accuracy'], label='val accuracy')
+    axs[0].plot(history.history['accuracy'], label='Train Accuracy')
+    axs[0].plot(history.history['val_accuracy'], label='Validation Accuracy')
     axs[0].set_xlabel('Epoch')
     axs[0].set_ylabel('Accuracy')
     axs[0].legend()
     axs[0].set_title('Training and Validation Accuracy')
     
-    axs[1].plot(history.history['loss'], label='train loss')
-    axs[1].plot(history.history['val_loss'], label='val loss')
+    axs[1].plot(history.history['loss'], label='Train Loss')
+    axs[1].plot(history.history['val_loss'], label='Validation Loss')
     axs[1].set_xlabel('Epoch')
     axs[1].set_ylabel('Loss')
     axs[1].legend()
@@ -79,10 +111,47 @@ def plot_training_history(history):
     
     st.pyplot(fig)
 
-# Streamlit app
+# Fungsi untuk menampilkan Confusion Matrix, F1 Score, dan AUC
+def evaluate_model(model, X_val, y_val):
+    st.subheader('Model Evaluation')
+
+    # Prediksi dengan data validasi
+    y_pred_prob = model.predict(X_val)
+    y_pred = (y_pred_prob > 0.5).astype("int32")
+
+    # Confusion Matrix
+    cm = confusion_matrix(y_val, y_pred)
+    # Display the confusion matrix using heatmap
+    st.write('Confusion Matrix:')
+    plt.figure(figsize=(6, 4))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
+    plt.ylabel('True Label')
+    plt.title('Confusion Matrix')
+    st.pyplot()
+
+    # F1 Score
+    f1 = f1_score(y_val, y_pred)
+    st.write(f'F1 Score: {f1:.4f}')
+
+    # AUC
+    auc = roc_auc_score(y_val, y_pred_prob)
+    st.write(f'AUC: {auc:.4f}')
+
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(y_val, y_pred_prob)
+    plt.figure(figsize=(6, 4))
+    plt.plot(fpr, tpr, label=f'AUC = {auc:.4f}')
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend(loc='lower right')
+    st.pyplot()
+
+# Aplikasi Streamlit
 st.title('Klasifikasi dan Visualisasi Stunting')
 
-# Sidebar menu
+# Menu di sidebar
 menu = st.sidebar.selectbox('Menu', ['Classification', 'Visualization'])
 
 # File uploader
@@ -92,28 +161,43 @@ if uploaded_file:
     data = load_data(uploaded_file)
     X, y = preprocess_data(data)
 
+    # Terapkan SMOTE untuk semua visualisasi dan klasifikasi
+    smote = SMOTE(random_state=42)
+    X_resampled, y_resampled = smote.fit_resample(X, y)
+
     if menu == 'Classification':
         st.header('Classification')
 
-        X_train, X_val, y_train, y_val = train_test_split(
-            X, y, 
-            test_size=0.2, 
-            random_state=42
-        )
+        # Pengaturan Hyperparameter
+        n_units = st.sidebar.slider('LSTM Units', min_value=10, max_value=100, value=50)
+        dropout_rate = st.sidebar.slider('Dropout Rate', min_value=0.0, max_value=0.5, value=0.2)
+        learning_rate = st.sidebar.slider('Learning Rate', min_value=0.0001, max_value=0.01, value=0.001)
+        epochs = st.sidebar.slider('Epochs', min_value=10, max_value=200, value=100)
+        batch_size = st.sidebar.slider('Batch Size', min_value=16, max_value=128, value=32)
 
-        # Reshape data for LSTM
+        # Split data untuk training dan validasi
+        X_train, X_val, y_train, y_val = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
+
+        # Mengubah bentuk data untuk LSTM
         X_train = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
         X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
 
-        model, history = build_and_train_lstm(X_train, y_train, X_val, y_val)
+        model, history = build_and_train_lstm(X_train, y_train, X_val, y_val, n_units, dropout_rate, learning_rate, epochs, batch_size)
 
         st.subheader('Training History')
-        st.write('Berikut grafik loss dan accuracy dari data stunting dengan 50 epoch ')
+        st.write('Grafik loss dan accuracy dari pelatihan model:')
         plot_training_history(history)
+
+        # Evaluasi model
+        evaluate_model(model, X_val, y_val)
 
     elif menu == 'Visualization':
         st.header('Visualization Data')
-        st.write('Berikut visualisasi dari data stunting dengan menggunakan scatter plot')
-        visualize_data(X, y)
+        st.write('Visualisasi data stunting menggunakan scatter plot:')
+        visualize_data(X, y, X_resampled, y_resampled)
+
+        st.write('Distribusi kelas sebelum dan sesudah SMOTE:')
+        visualize_class_distribution(y, y_resampled)
+
 else:
     st.write('Please upload an Excel file to proceed.')
