@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import folium
+from streamlit_folium import st_folium
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score, roc_curve
@@ -23,7 +26,7 @@ def preprocess_data(data):
     data['TB/U'] = data['TB/U'].apply(lambda x: 1 if x == 'Pendek' else 0)
 
     # Memilih kolom yang relevan
-    X = data[['Berat', 'Usia Saat Ukur (Bulan)', 'ZS TB/U']]
+    X = data[['Tinggi', 'Usia Saat Ukur (Bulan)', 'ZS TB/U']]
     y = data['TB/U']
 
     # Standarisasi fitur
@@ -32,14 +35,46 @@ def preprocess_data(data):
 
     return X, y
 
+# Fungsi untuk visualisasi spasial
+def spatial_visualization(data):
+    # Pisahkan kolom "Desa(lat, lng)" menjadi dua kolom "lat" dan "lon"
+    data[['lat', 'lon']] = data['Desa(lat, lng)'].str.split(',', expand=True)
+
+    # Konversi kolom lat dan lon ke tipe data float
+    data['lat'] = data['lat'].astype(float)
+    data['lon'] = data['lon'].astype(float)
+
+    # Konversi kolom date menjadi format datetime
+    data['date'] = pd.to_datetime(data['Tanggal Pengukuran'])
+
+    # Hitung frekuensi kemunculan setiap kombinasi lat dan lon
+    location_counts = data.groupby(['lat', 'lon', 'date']).size().reset_index(name='count')
+
+    # Buat peta dasar dengan folium
+    m = folium.Map(location=[data['lat'].mean(), data['lon'].mean()], zoom_start=12)
+
+    # Tambahkan lingkaran ke peta untuk setiap lokasi dengan radius berdasarkan jumlah kejadian
+    for _, row in location_counts.iterrows():
+        folium.Circle(
+            location=(row['lat'], row['lon']),
+            radius=row['count'] * 10,  # Radius yang ditentukan oleh frekuensi kemunculan
+            color='red',
+            fill=True,
+            fill_color='red',
+            fill_opacity=0.6
+        ).add_to(m)
+
+    # Tampilkan peta dalam Streamlit
+    st_folium(m, width=700, height=500)
+
 # Fungsi untuk visualisasi data
 def visualize_data(X, y, X_resampled, y_resampled):
     st.subheader('Scatter Plots Before and After SMOTE')
 
-    df_before = pd.DataFrame(X, columns=['Berat', 'Usia Saat Ukur (Bulan)', 'ZS TB/U'])
+    df_before = pd.DataFrame(X, columns=['Tinggi', 'Usia Saat Ukur (Bulan)', 'ZS TB/U'])
     df_before['Stunting'] = y
 
-    df_after = pd.DataFrame(X_resampled, columns=['Berat', 'Usia Saat Ukur (Bulan)', 'ZS TB/U'])
+    df_after = pd.DataFrame(X_resampled, columns=['Tinggi', 'Usia Saat Ukur (Bulan)', 'ZS TB/U'])
     df_after['Stunting'] = y_resampled
 
     fig, axs = plt.subplots(1, 2, figsize=(14, 6))
@@ -193,7 +228,11 @@ if uploaded_file:
 
     elif menu == 'Visualization':
         st.header('Visualization Data')
-        st.write('Visualisasi data stunting menggunakan scatter plot:')
+        st.write('Distribusi sebaran stunting:')
+        data = load_data(uploaded_file)
+        spatial_visualization(data)
+
+        st.write('Visualisasi data stunting scatter plot:')
         visualize_data(X, y, X_resampled, y_resampled)
 
         st.write('Distribusi kelas sebelum dan sesudah SMOTE:')
